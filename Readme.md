@@ -1,236 +1,202 @@
-# Predictive Maintenance Pipeline: DPF Soot Load Prediction System
+<div align="center">
 
-**Author:** Aman Mani Tiwari  
-**Role Applied:** Data Science Intern – Tensor Planet  
-**Tools Used:** Python, NumPy, Pandas, Scikit-learn, FastAPI  
+# 🛢️ DPF Soot Load Prediction
+### Predictive Maintenance Pipeline for Diesel Particulate Filters
 
----
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Scikit--learn](https://img.shields.io/badge/Model-RandomForestRegressor-orange?logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
+[![Jupyter](https://img.shields.io/badge/Notebook-Jupyter-F37626?logo=jupyter&logoColor=white)](https://jupyter.org/)
+[![Status](https://img.shields.io/badge/Status-Prototype-yellow)]()
+[![License](https://img.shields.io/badge/License-Unspecified-lightgrey)]()
 
-## 1. Overview & Objective
+*An end-to-end machine learning pipeline that estimates Diesel Particulate Filter (DPF) soot load from vehicle telemetry and recommends proactive regeneration — built to minimize unplanned downtime across a fleet.*
 
-Commercial diesel vehicles equipped with Diesel Particulate Filters (DPF) continuously accumulate soot during normal operation. Excessive soot loading can result in engine derate events, forced regenerations, increased fuel consumption, and unplanned downtime.
+[Overview](#-overview) •
+[How It Works](#-how-it-works) •
+[Getting Started](#-getting-started) •
+[Methodology](#-methodology) •
+[Roadmap](#-roadmap) •
+[Author](#-author)
 
-The objective of this assignment is to design an **end-to-end predictive maintenance pipeline** that estimates DPF soot load using vehicle telemetry data and provides **proactive regeneration recommendations**, while balancing false alarms and operational cost.
-
-This solution focuses on:
-
-- Structured synthetic data generation  
-- Feature engineering informed by engineering intuition  
-- Thoughtful problem framing and modeling tradeoffs  
-- Production and robustness considerations  
-
----
-
-## 2. Data Generation Approach
-
-### 2.1 Assumptions
-
-Since real-world DPF telemetry data is proprietary, synthetic datasets were generated with the following assumptions:
-
-- Soot accumulation increases gradually based on engine load and operating conditions  
-- Differential pressure increases as soot accumulates  
-- Higher exhaust temperatures improve regeneration effectiveness  
-- Sensor readings contain noise and mild drift, similar to real vehicle data  
-
-The goal was **internal consistency**, not precise physical modeling.
+</div>
 
 ---
 
-### 2.2 Datasets Generated
+## 📌 Overview
 
-#### 1. Sensor Telemetry Dataset
+Commercial diesel vehicles fitted with Diesel Particulate Filters (DPF) accumulate soot continuously during normal operation. Left unmanaged, excessive soot loading triggers **engine derate events, forced regenerations, elevated fuel consumption, and unplanned downtime** — all of which carry real operational cost for a fleet.
 
-- **Granularity:** Every 5 minutes  
-- **Duration:** 30 days  
-- **Vehicles:** 20  
+This project frames DPF soot load estimation as a **regression problem** rather than a binary alert, predicting a continuous **soot load (%)** from synthetic sensor telemetry. A continuous output lets operators apply flexible, configurable thresholds per vehicle type or fleet policy, rather than being locked into a single hardcoded alarm point.
 
-**Fields include:**
-- Engine load  
-- Exhaust temperature (pre & post DPF)  
-- Differential pressure  
-- Exhaust flow rate  
-- Vehicle speed and RPM  
-- Ambient temperature  
-- Ground-truth soot load (used only for training)  
+The repository documents the full lifecycle of that approach — synthetic data generation, feature engineering, modeling tradeoffs, evaluation strategy, and production/MLOps considerations — as a worked example of predictive-maintenance system design.
+
+> **Note on scope:** Real-world DPF telemetry is proprietary, so this project uses physically-motivated **synthetic data**. The goal is internal consistency and sound engineering reasoning, not a calibrated physical model. Sections describing API serving, containerization, and monitoring describe the **intended production design**; see [Roadmap](#-roadmap) for current implementation status.
 
 ---
 
-#### 2. Maintenance / Regeneration Records
+## 🧩 Problem Framing
 
-Event-based dataset containing:
-
-- Vehicle ID  
-- Regeneration timestamp  
-- Regeneration type (active regeneration)  
-
-Events are triggered when soot load exceeds a defined threshold, simulating real maintenance logs.
-
----
-
-#### 3. Trip Characteristics (Conceptual)
-
-Trip-level aggregates such as trip duration, distance, and driving pattern were conceptually modeled and can be integrated in future iterations to enrich driving behavior features.
+| Question | Answer |
+|---|---|
+| **What are we predicting?** | Continuous DPF soot load (%), with a derived regeneration recommendation based on configurable thresholds |
+| **Why regression, not classification?** | Flexible thresholds beat a fixed binary cutoff — different vehicles/fleets can tolerate different risk levels |
+| **What matters more — false positives or false negatives?** | False negatives (missed warnings) are far costlier — they risk engine derate and downtime. False positives only cost a minor fuel penalty. The system is intentionally biased toward **early warning**. |
+| **Primary metric** | Mean Absolute Error (MAE) — aligns more closely with operational cost than squared-error metrics |
 
 ---
 
-## 3. Data Engineering & Feature Design
+## ⚙️ How It Works
 
-### 3.1 Feature Engineering
+```mermaid
+flowchart LR
+    A[Synthetic Telemetry<br/>Generation] --> B[Feature Engineering<br/>& Data Quality Checks]
+    B --> C[Random Forest<br/>Regressor]
+    C --> D[Soot Load %<br/>Prediction]
+    D --> E[Regeneration<br/>Recommendation]
+    E --> F[(Fleet Maintenance<br/>Decision)]
+```
 
-Key engineered features include:
+**1. Synthetic Data Generation** — 20 simulated vehicles, sensor readings every 5 minutes over a 30-day window, plus an event-based regeneration log. Soot accumulation scales with engine load and operating conditions; differential pressure rises with soot buildup; readings include realistic noise and drift.
 
-- **Rolling averages of exhaust temperature**  
-  Capture sustained thermal conditions indicating regeneration opportunity.
+**2. Feature Engineering** — Rolling averages of exhaust temperature and differential pressure smooth noisy signals and capture sustained operating trends; the pre/post-DPF temperature delta proxies regeneration effectiveness. All features are vehicle-aware and strictly time-ordered to prevent data leakage.
 
-- **Rolling averages of differential pressure**  
-  Smooth noisy sensor readings and represent soot buildup trends.
+**3. Modeling** — A `RandomForestRegressor` was chosen for its robustness to noisy sensor data, ability to capture non-linear relationships, minimal preprocessing requirements, and reasonable interpretability via feature importances.
 
-- **Temperature delta (pre vs post DPF)**  
-  Proxy for regeneration effectiveness.
-
-All features are vehicle-aware and time-ordered to prevent data leakage.
-
----
-
-### 3.2 Data Quality Checks
-
-Basic validation logic includes:
-
-- Missing value threshold checks  
-- Statistical sensor drift detection  
-- Logical bounds on critical sensors  
-
-These checks are designed to execute prior to inference in production systems.
+**4. Evaluation** — MAE on held-out data, with focused error inspection in the critical 60–80% soot-load band where regeneration decisions matter most.
 
 ---
 
-### 3.3 Data Versioning Strategy
+## 📊 Datasets
 
-Each dataset and model artifact is associated with:
+| Dataset | Description |
+|---|---|
+| **Sensor Telemetry** | Engine load, pre/post-DPF exhaust temperature, differential pressure, exhaust flow rate, vehicle speed & RPM, ambient temperature, and ground-truth soot load (training only). 5-minute granularity, 30 days, 20 vehicles. |
+| **Maintenance / Regeneration Records** | Event log of vehicle ID, regeneration timestamp, and regeneration type, triggered once soot load crosses a defined threshold — simulating real maintenance logs. |
+| **Trip Characteristics** *(conceptual)* | Trip duration, distance, and driving-pattern aggregates, scoped as a future enrichment for driving-behavior features. |
 
-- Generation timestamp  
-- Feature schema  
-- Model version  
-
-This enables traceability, reproducibility, and safe retraining.
-
----
-
-## 4. Problem Framing & Modeling Approach
-
-### 4.1 Business Framing
-
-The problem is framed as:
-
-> *Estimate the current DPF soot load and recommend proactive regeneration actions to avoid operational failures.*
-
-Rather than a binary classification, the system predicts **continuous soot load (%)**, allowing flexible thresholds based on vehicle type and fleet policy.
+**Data quality & versioning:** missing-value thresholds, statistical sensor-drift detection, and logical sensor bounds are checked prior to inference. Each dataset and model artifact is tagged with a generation timestamp, feature schema, and model version for traceability and safe retraining.
 
 ---
 
-### 4.2 Target Definition
+## 🚀 Getting Started
 
-- **Primary target:** DPF soot load percentage  
-- **Derived output:** Regeneration recommendation based on configurable thresholds  
+### Prerequisites
+- Python 3.9+
+- Jupyter Notebook / JupyterLab
+- `numpy`, `pandas`, `scikit-learn` (see [Installation](#installation))
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/AmanManiTiwari/dpf-soot-load-prediction.git
+cd dpf-soot-load-prediction
+
+# Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate
+
+# Install core dependencies
+pip install numpy pandas scikit-learn jupyter
+```
+
+> A pinned `requirements.txt` is not yet included in this repository — see [Roadmap](#-roadmap).
+
+### Run the Notebook
+
+```bash
+jupyter notebook main.ipynb
+```
+
+`main.ipynb` walks through synthetic data generation, feature engineering, model training, and evaluation end to end.
 
 ---
 
-### 4.3 Tradeoffs Considered
+## 🧠 Methodology
+
+### Tradeoffs Considered
 
 | Aspect | Decision |
-|------|---------|
-| False positives | Acceptable (minor fuel penalty) |
-| False negatives | High cost (engine derate, downtime) |
-| Early warning | Prioritized over perfect accuracy |
-| Interpretability | Balanced with performance |
+|---|---|
+| False positives | Accepted — minor fuel penalty |
+| False negatives | Treated as high cost — risk of engine derate / downtime |
+| Early warning | Prioritized over marginal accuracy gains |
+| Interpretability | Balanced against raw predictive performance |
+
+### Evaluation Strategy
+
+- **Offline:** MAE across historical data, with targeted error analysis near the 60–80% critical soot-load range.
+- **Production (designed):** monitoring prediction distributions over time, comparing predictions against post-regeneration outcomes, and tracking false-alert rates. Success is measured by the **reduction in unplanned maintenance events**, not model accuracy alone.
+
+### Robustness & Edge Cases
+
+The design accounts for missing sensor readings, out-of-range values, cold-start vehicles with new DPFs, immediately-post-regeneration states, and delayed or stale data — validated through unit tests on feature logic, integration tests on the full pipeline, and mock data simulations.
 
 ---
 
-### 4.4 Modeling Choice
+## 🏭 Production Design (Target Architecture)
 
-A **Random Forest Regressor** was selected because:
+The system is designed to extend beyond the notebook into a deployable service:
 
-- Handles non-linear relationships between sensors  
-- Robust to noisy data  
-- Requires minimal preprocessing  
-- Provides reasonable interpretability  
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Telemetry  │ --> │  FastAPI Service  │ --> │  Regeneration    │
+│  Ingestion  │     │  (model serving)  │     │  Recommendation  │
+└─────────────┘     └──────────────────┘     └─────────────────┘
+```
 
-The primary evaluation metric is **Mean Absolute Error (MAE)**, which aligns better with operational cost than squared error metrics.
+**Planned API surface:**
 
----
+| Endpoint | Purpose |
+|---|---|
+| `POST /predict/soot-load` | Single-vehicle soot load prediction |
+| `POST /predict/batch` | Batch prediction across a fleet (extendable) |
+| `GET /model/info` | Active model version and metadata |
+| `GET /health` | Service health check |
 
-## 5. Evaluation Strategy
-
-### Offline Evaluation
-
-- MAE across historical data  
-- Error inspection near critical soot thresholds (60–80%)  
-
-### Production Evaluation
-
-- Monitoring prediction distributions  
-- Comparing predictions with post-regeneration outcomes  
-- Tracking false alert rates  
-
-Success is defined not just by model accuracy, but by **reduced unplanned maintenance events**.
+The service is intended to be stateless and containerized (Docker, pinned dependencies) for cloud or edge deployment across a fleet.
 
 ---
 
-## 6. Production & MLOps Considerations
+## 📁 Project Structure
 
-### 6.1 Model Training & Artifact Management
-
-- Reproducible training scripts  
-- Hyperparameter logging  
-- Versioned model artifacts  
-
----
-
-### 6.2 Model Serving
-
-A FastAPI-based service exposes:
-
-- `/predict/soot-load`  
-- `/predict/batch` (extendable)  
-- `/model/info`  
-- `/health`  
-
-The API is stateless and suitable for scaling across fleets.
+```
+dpf-soot-load-prediction/
+├── main.ipynb     # End-to-end pipeline: data generation → features → model → evaluation
+└── Readme.md       # Project documentation
+```
 
 ---
 
-### 6.3 Containerization
+## 🗺️ Roadmap
 
-The system is designed for Docker-based deployment with pinned dependencies, allowing cloud or edge deployment.
-
----
-
-## 7. System Robustness & Edge Cases
-
-Handled or considered scenarios include:
-
-- Missing sensor readings  
-- Out-of-range values  
-- Cold-start vehicles with new DPFs  
-- Immediately post-regeneration states  
-- Delayed or stale data  
-
-**Testing strategy includes:**
-- Unit tests for feature logic  
-- Integration tests for the full pipeline  
-- Mock data simulations  
+- [ ] Extract pipeline logic from `main.ipynb` into reusable Python modules (`src/`)
+- [ ] Add `requirements.txt` / `pyproject.toml` for reproducible environments
+- [ ] Implement the FastAPI serving layer described above
+- [ ] Add Dockerfile for containerized deployment
+- [ ] Integrate trip-level driving-behavior features
+- [ ] Add automated unit/integration tests and CI
+- [ ] Publish evaluation metrics and sample plots in-repo
 
 ---
 
-## 8. Business Impact of Prediction Errors
+## 🤝 Contributing
 
-- **False positives:** Slight fuel penalty, acceptable  
-- **False negatives:** Severe risk of downtime and component damage  
+Issues and pull requests are welcome. If you're proposing a significant change, please open an issue first to discuss the approach.
 
-Therefore, the system intentionally biases toward **early warning**.
+## 📄 License
+
+No license has been specified for this repository yet. Until one is added, all rights are reserved by the author.
+
+## 👤 Author
+
+**Aman Mani Tiwari**
+Built as a Data Science Intern technical assignment.
+
+[![GitHub](https://img.shields.io/badge/GitHub-AmanManiTiwari-181717?logo=github&logoColor=white)](https://github.com/AmanManiTiwari)
 
 ---
 
-## 9. Conclusion & Recommendation
-
-This project demonstrates a scalable and production-aware approach to DPF soot load prediction using vehicle telemetry data. With real-world data and feedback loops, the system can significantly reduce unplanned downtime and improve fleet efficiency.
+<div align="center">
+<sub>If this project was useful or interesting to you, consider starring ⭐ the repository.</sub>
+</div>
